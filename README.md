@@ -87,3 +87,7 @@ Fehler (z. B. Timeout, Parsingfehler) werden geloggt und ggf. separat gemeldet
 | `kurs_status.json` | Letzter bekannter Zustand (automatisch erzeugt)     |
 | `error_log.json`   | Fehlerprotokoll für E-Mail-Timeouts usw.            |
 | `zhs_scraper.log`  | Logfile mit Zeitstempeln                            |
+
+## Beispiel
+Wenn der Scraper z.b. neue Kursoptionen in den gewählten Unterkursen findet schickt er eine Mail dieser Art:
+![](https://github.com/PhilippVn/ZHS-Scraper-Multi/blob/main/examplemail.png "Beispiel Email")

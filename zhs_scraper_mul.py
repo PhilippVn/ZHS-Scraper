@@ -263,8 +263,12 @@ def send_changes_emails(changes, config):
             text += "Neue Kurse:\n"
             html += "<h3>🟢 Neue Kurse</h3>"
             for k in neu:
-                text += format_kurs_info(k).replace('<br>','\n') + "\n" #  liefert einen HTML‑String mit <br> als Zeilen­umbruch. wandelt diese in echte Zeilen­umbrüche um.
+                text += format_kurs_info(k).replace('<br>','\n') + "\n\n" #  liefert einen HTML‑String mit <br> als Zeilen­umbruch. wandelt diese in echte Zeilen­umbrüche um.
                 html += format_kurs_info(k)
+        
+        text += "\n\n"
+        html += "<br><br>"
+
         # status_update
         upd = [c for c in items if c['typ']=='status_update'] # Extrahiert alle Status‑Änderungen in upd.
         if upd:
@@ -273,15 +277,19 @@ def send_changes_emails(changes, config):
             for c in upd:
                 nk = c['neu']; ok = c['alt'] # Neuer Kurs und Alter Kurs
                 line = format_kurs_info(nk) + f"Status: {ok['status']} → {nk['status']}<br><br>"
-                text += line.replace('<br>','\n')
+                text += line.replace('<br>','\n') + "\n\n"
                 html += line
+
+        text += "\n\n"
+        html += "<br><br>"
+
         # deleted
         dl = [c['kurs'] for c in items if c['typ']=='geloescht'] # Extrahiere alle gelöschten Kurse in dl
         if dl:
             text += "Gelöschte Kurse:\n"
             html += "<h3>❌ Gelöschte Kurse</h3>"
             for k in dl:
-                text += format_kurs_info(k).replace('<br>','\n') + "\n"
+                text += format_kurs_info(k).replace('<br>','\n') + "\n\n"
                 html += format_kurs_info(k)
         send_email_raw(subject, text, html)
 

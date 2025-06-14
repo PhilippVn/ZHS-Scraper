@@ -292,14 +292,16 @@ def main():
     args = parser.parse_args()
     setup_logger(debug=args.debug)
     try:
-        config = load_config() # Liest config.json ein und parsed es als Python‑Dict.
-        if not config:
-            return
         interval = config.get('interval', 600)
         interesting = config.get('interesting_status', ['buchen','Warteliste','buchbar_ab']) # Liste der Stati, auf die wir achten (z.B. ["buchen","Warteliste","buchbar_ab"]).
 
         state = load_state() # Lädt den letzten Zustand (Liste aller Kurse) aus kurs_status.json oder initialisiert mit leerer Liste.
         while True:
+            # Config bei jedem Durchlauf frisch einlesen
+            config = load_config()
+            if not config:
+                logging.error("Keine gültige Konfiguration, breche ab.")
+                return
             all_new = []
             for cfg in config.get('kurse', []): # Für jeden konfigurierten Kurs: Rufe scrape_kurs(cfg) auf, sammle alle gefundenen Unterkurse in all_new.
                 all_new.extend(scrape_kurs(cfg))

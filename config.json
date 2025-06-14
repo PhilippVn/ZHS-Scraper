@@ -21,8 +21,73 @@
       ]
     },
     {
-      "name": "Fussball",
-      "url": "https://www.buchung.zhs-muenchen.de/angebote/aktueller_zeitraum_0/_Fussball.html",
+      "name": "Berg- und Wandertouren-Eintägig",
+      "url": "https://www.buchung.zhs-muenchen.de/angebote/aktueller_zeitraum_0/_Berg-_und_Wandertouren-Eintaegig.html",
+      "tabellen": [
+        {
+          "index": 0,
+          "bezeichnung": "Bergwandern leicht T1-T2"
+        },
+        {
+          "index": 1,
+          "bezeichnung": "Bergwandern mittel T3-T4"
+        },
+        {
+          "index": 2,
+          "bezeichnung": "Bergtour schwer T5-T6"
+        }
+      ]
+    },
+    {
+      "name": "Gerätturnen",
+      "url": "https://www.buchung.zhs-muenchen.de/angebote/aktueller_zeitraum_0/_Geraetturnen.html",
+      "tabellen": [
+        {
+          "index": 0,
+          "bezeichnung": "Gerätturnen Freies Üben"
+        }
+      ]
+    },
+    {
+      "name": "Gletscher- und Hochtouren - Ausbildung",
+      "url": "https://www.buchung.zhs-muenchen.de/angebote/aktueller_zeitraum_0/_Gletscher-_und_Hochtouren_-_Ausbildung.html",
+      "tabellen": [
+        {
+          "index": 0,
+          "bezeichnung": "Hochtouren Basiskurs: Simonyhütte"
+        },
+        {
+          "index": 1,
+          "bezeichnung": "Hochtouren Basiskurs: Oberwalderhütte"
+        },
+        {
+          "index": 2,
+          "bezeichnung": "Hochtouren Basiskurs: Taschachhaus"
+        }
+      ]
+    },
+    {
+      "name": "Rudern - Kurse",
+      "url": "https://www.buchung.zhs-muenchen.de/angebote/aktueller_zeitraum_0/_Rudern_-_Kurse.html",
+      "tabellen": [
+        {
+          "index": 0,
+          "bezeichnung": "Ruderkurse - Kurseinteilung - wichtige Informationen zur Einteilung der Leistungsklassen A/F1/F2"
+        }
+      ]
+    },
+    {
+      "name": "Tennis - Kursreihe 1",
+      "url": "https://www.buchung.zhs-muenchen.de/angebote/aktueller_zeitraum_0/_Tennis_-_Kursreihe_1.html",
+      "tabellen": [
+        {
+          "index": 0
+        }
+      ]
+    },
+    {
+      "name": "Tennis - Kursreihe 2",
+      "url": "https://www.buchung.zhs-muenchen.de/angebote/aktueller_zeitraum_0/_Tennis_-_Kursreihe_2.html",
       "tabellen": [
         {
           "index": 0

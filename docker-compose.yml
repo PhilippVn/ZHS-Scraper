@@ -1,0 +1,13 @@
+services:
+  zhs-monitor:
+    build: .
+    container_name: zhs-scraper
+    env_file:
+      - .env
+    restart: always
+    volumes:
+      - ./kurs_status.json:/app/kurs_status.json
+      - ./zhs_scraper.log:/app/zhs_scraper.log
+      - ./error_log.json:/app/error_log.json
+      - ./config.json:/app/config.json
+      - ./.env:/app/.env

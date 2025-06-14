@@ -1,0 +1,33 @@
+{
+  "interval": 600,
+  "interesting_status": [
+    "buchen",
+    "Warteliste",
+    "buchbar_ab"
+  ],
+  "kurse": [
+    {
+      "name": "Krafttraining",
+      "url": "https://www.buchung.zhs-muenchen.de/angebote/aktueller_zeitraum_0/_Krafttraining_-_Studio.html",
+      "tabellen": [
+        {
+          "index": 0,
+          "bezeichnung": "Einweisung"
+        },
+        {
+          "index": 1,
+          "bezeichnung": "Studio"
+        }
+      ]
+    },
+    {
+      "name": "Fussball",
+      "url": "https://www.buchung.zhs-muenchen.de/angebote/aktueller_zeitraum_0/_Fussball.html",
+      "tabellen": [
+        {
+          "index": 0
+        }
+      ]
+    }
+  ]
+}

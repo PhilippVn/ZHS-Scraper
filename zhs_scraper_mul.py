@@ -28,7 +28,7 @@ SMTP_PORT       = int(os.getenv("SMTP_PORT", 587))
 SMTP_USER       = os.getenv("SMTP_USER")
 SMTP_PASSWORD   = os.getenv("SMTP_PASSWORD")
 EMAIL_FROM      = os.getenv("EMAIL_FROM")
-EMAIL_TO        = os.getenv("EMAIL_TO", "").split(",")  # Mehrere Empfänger
+EMAIL_TO        = os.getenv("EMAIL_TO", "").split(",")
 
 # --- Logger Setup ---------------------------------------------------------
 def setup_logger(debug=False):
@@ -48,8 +48,7 @@ def setup_logger(debug=False):
 # --- HTTP Session mit Retry -----------------------------------------------
 def make_session():
     session = requests.Session()
-    retries = Retry(total=3, backoff_factor=1,
-                    status_forcelist=[500, 502, 503, 504]) # Session mit exponential Backoff
+    retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retries)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
@@ -57,12 +56,18 @@ def make_session():
 
 SESSION = make_session()
 
-# --- Error-Log Handling ---------------------------------------------------
+# --- Fehlerprotokollierung ------------------------------------------------ (Email Timeouts)
+ERROR_TIMEOUTS = {
+    'Scraping-Fehler': timedelta(hours=1),
+    'Ungefangener Fehler im Hauptloop': timedelta(hours=1),
+}
+
+
 def load_error_log():
     if os.path.exists(ERROR_LOG_FILE):
         with open(ERROR_LOG_FILE, 'r') as f:
             return json.load(f)
-    return { 'last_error_email': None, 'errors': [] }
+    return { 'last_error_email': {}, 'errors': [] }
 
 
 def save_error_log(log_data):
@@ -71,26 +76,22 @@ def save_error_log(log_data):
 
 
 def handle_error(subject, message):
-    log_data = load_error_log()
+    log_data = load_error_log() # Fehler-Log laden (json Datei)
     now = datetime.utcnow()
-    # Fehler protokollieren
-    log_data['errors'].append({
-        'timestamp': now.isoformat(),
-        'subject': subject,
-        'message': message
-    })
-    # Prüfen, ob wir in der letzten Stunde eine Mail gesendet haben
-    last = log_data.get('last_error_email')
-    if last:
-        last_dt = datetime.fromisoformat(last)
-    else:
-        last_dt = now - timedelta(hours=2)
+    log_data['errors'].append({'timestamp': now.isoformat(), 'subject': subject, 'message': message}) # Neuen Fehler-Eintrag mit Zeit, Betreff und Nachricht anhängen
 
-    if now - last_dt >= timedelta(hours=1):
+    # Timeout für Fehler-Mail: Standard 1 Stunde, sonst spezifisch aus ERROR_TIMEOUTS
+    timeout = ERROR_TIMEOUTS.get(subject.split()[0], timedelta(hours=1))
+    last_sent = log_data['last_error_email'].get(subject) # Zeitpunkt der letzten Mail für diesen Fehler
+    last_dt = datetime.fromisoformat(last_sent) if last_sent else now - timedelta(hours=2) 
+
+     # Nur wenn seit letzter Mail der Timeout überschritten ist, neue Mail senden
+    if now - last_dt >= timeout:
         send_error_email(subject, message)
-        log_data['last_error_email'] = now.isoformat()
+        log_data['last_error_email'][subject] = now.isoformat()  # Zeit der letzten Mail aktualisieren
 
-    save_error_log(log_data)
+    save_error_log(log_data) # Fehler-Log mit neuem Eintrag speichern
+
 
 # --- E-Mail Versand --------------------------------------------------------
 def send_email_raw(subject, body, html_body=None):
@@ -99,11 +100,9 @@ def send_email_raw(subject, body, html_body=None):
     msg['To'] = ", ".join(EMAIL_TO)
     msg['Subject'] = subject
 
-    part1 = MIMEText(body, 'plain', 'utf-8')
-    msg.attach(part1)
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
     if html_body:
-        part2 = MIMEText(html_body, 'html', 'utf-8')
-        msg.attach(part2)
+        msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
@@ -117,10 +116,10 @@ def send_email_raw(subject, body, html_body=None):
 
 def send_error_email(subject, message):
     body = f"Fehler im ZHS Kurs-Scraper:\n\n{message}\n\nZeit: {datetime.now().isoformat()}"
-    html = f"<p><b>Fehler im ZHS Kurs-Scraper:</b></p><p>{message}</p><p>Zeit: {datetime.now().isoformat()}</p>"
+    html = f"<h1>Fehler im ZHS Kurs-Scraper:</h1><p>{message}</p><p>Zeit: {datetime.now().isoformat()}</p>"
     send_email_raw(subject, body, html)
 
-# --- Config laden ---------------------------------------------------------
+# --- Config, State --------------------------------------------------------
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         logging.error(f"Konfigurationsdatei {CONFIG_FILE} nicht gefunden!")
@@ -128,7 +127,7 @@ def load_config():
     with open(CONFIG_FILE, 'r') as f:
         return json.load(f)
 
-# --- State Handling -------------------------------------------------------
+
 def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r') as f:
@@ -140,35 +139,30 @@ def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=2)
 
-# --- Scraping-Funktionen --------------------------------------------------
+# --- Scraping -------------------------------------------------------------
+# Helper funktion um alle Kurse in Tabelle zu ziehen
 def scrape_tabelle(soup, idx, label=None):
-    tables = soup.select('table.bs_kurse') # TODO konfigurierbar?
+    tables = soup.select('table.bs_kurse') # Alle Tabellen mit Klasse 'bs_kurse' holen
     if idx >= len(tables):
         logging.warning(f"Tabelle Index {idx} nicht gefunden.")
         return []
-    table = tables[idx] # Tabelle nach index
+    table = tables[idx] # Tabelle mit index holen
 
-    # Header-Erkennung
-    headers = [th.get_text(strip=True) for th in table.select('thead th')] # Header‑Zeilen erkennen (variabel!). Zuerst thead th.
+     # Tabellen-Header aus <thead> auslesen, falls nicht da, aus erster Datenzeile
+    headers = [th.get_text(strip=True) for th in table.select('thead th')]
     if not headers:
-        # Suche erste Zeile tr mit <th>
-        first_th_row = table.find('tr', lambda r: r.find_all('th'))
-        if first_th_row:
-            headers = [th.get_text(strip=True) for th in first_th_row.find_all('th')]
-        else:
-            # fallback auf erste Datenzeile
-            first_row = table.select_one('tr') # TODO wollen wir das?
-            headers   = [td.get_text(strip=True) for td in first_row.find_all('td')]
+        first_row = table.select_one('tr')
+        headers = [td.get_text(strip=True) for td in first_row.find_all(['td', 'th'])]
 
     kurse = []
-    for row in table.select('tbody tr'): # Iteriere über alle Kurse/Zeilen
+    for row in table.select('tbody tr'):
         cols = row.find_all('td')
         if len(cols) != len(headers):
-            logging.debug("Spaltenanzahl passt nicht zu Header, überspringe Zeile.")
-            continue
-        info = { headers[i]: cols[i].get_text(strip=True) for i in range(len(headers)) }
+            continue # Inkonsistente Zeilen überspringen
 
-        # Status ermitteln
+        # Kursdaten als dict mit Headern als Keys und Zellen als Werte
+        info = { headers[i]: cols[i].get_text(strip=True) for i in range(len(headers)) }
+        info['status'] = 'unbekannt'
         last_cell = cols[-1]
         if last_cell.find('span', class_='bs_btn_abgelaufen'):
             info['status'] = 'abgelaufen'
@@ -178,25 +172,22 @@ def scrape_tabelle(soup, idx, label=None):
             info['status'] = 'buchen'
         elif last_cell.find('span', class_='bs_btn_autostart'):
             info['status'] = 'buchbar_ab'
-        else:
-            info['status'] = 'unbekannt'
-
-        info['tabellenname'] = label or f"Tabelle_{idx}" # Füge zu Kurs den Tabellennamen hinzu oder Index falls nicht angegeben
+        info['tabellenname'] = label or f"Tabelle_{idx}"
         kurse.append(info)
     return kurse
 
-
+# Parsed den Kurs mit seinen Unterkursen/Tabellen und versieht den Kurs mit Metadaten (Name, URL)
 def scrape_kurs(cfg):
     try:
-        r = SESSION.get(cfg['url'], timeout=10) # Session für Kurs URL mit Retry/Backoff, damit bei kurzen Server‑Hängern automatisch neu versucht wird.
+        r = SESSION.get(cfg['url'], timeout=10)
         r.raise_for_status()
         soup = BeautifulSoup(r.content, 'html.parser')
         all_kurse = []
-        for tab in cfg.get('tabellen', []): # Untertabellen/Unterkurse iterieren
-            kurse = scrape_tabelle(soup, tab['index'], tab.get('bezeichnung')) # Scrape Kurse in Tabelle,  extrahiert alle Zeilen dieser einzelnen Tabelle.
-            for k in kurse: # Nach dem Parsen jeder Zeile hängen wir noch kursname und url an.
+        for tab in cfg.get('tabellen', []): # Über alle definierten Tabellen iterieren
+            kurse = scrape_tabelle(soup, tab['index'], tab.get('bezeichnung'))
+            for k in kurse:
                 k['kursname'] = cfg['name']
-                k['url']       = cfg['url']
+                k['url'] = cfg['url']
             all_kurse.extend(kurse)
         return all_kurse
     except Exception as e:
@@ -204,131 +195,127 @@ def scrape_kurs(cfg):
         handle_error(f"Scraping-Fehler {cfg['name']}", str(e))
         return []
 
-# --- Vergleich und Updates ------------------------------------------------
-# eindeutige Kurs‑ID aus Nummer/Feld‑Kombination falls keine Kursnummer angegeben (für hashmap)
+# --- Vergleich ------------------------------------------------------------
 def headers_key(k):
     for key in ['Nr.', 'Kursnummer', 'kurs_nr', 'Nr', 'KursnrNo.']:
         if key in k:
             return k[key]
-    return f"{k.get('Tag','')}_{k.get('Zeit','')}_{k.get('Leitung','')}"
+    return f"{k.get('Tag','')}_{k.get('Zeit','')}_{k.get('Leitung','')}" # Fallback: Kombination aus Tag, Zeit und Leitung als Schlüssel
 
-# Änderungen zwischen old und new basierend auf interessanten Statusupdates interesting
+# Vergleicht alte Kurse in Json mit neuen um interessante Statusädnerungen (buchbar) und neue/gelöschte kurse zu finden und gibt diese zurück
 def compare_kurse(old, new, interesting):
     changes = []
+     # Mapping mit (kursname, tabellenname, key) als Schlüssel
     old_map = { (k['kursname'], k['tabellenname'], headers_key(k)): k for k in old }
     new_map = { (k['kursname'], k['tabellenname'], headers_key(k)): k for k in new }
 
-    # neue oder Status-Updates
     for key, nk in new_map.items():
         if key not in old_map:
-            if nk['status'] in interesting:
-                changes.append({'typ': 'neu', 'kurs': nk})
+            if nk['status'] in interesting: # Nur interessante Statusänderungen aka. jetzt Buchbar oder Warteliste oder buchbar_ab.
+                changes.append({'typ': 'neu', 'kurs': nk}) # Neuer Kurs
         else:
             ok = old_map[key]
             if ok['status'] != nk['status'] and nk['status'] in interesting:
-                changes.append({'typ': 'status_update', 'alt': ok, 'neu': nk})
-    # gelöschte
+                changes.append({'typ': 'status_update', 'alt': ok, 'neu': nk}) # Statusänderung
+
     for key, ok in old_map.items():
         if key not in new_map:
-            changes.append({'typ': 'geloescht', 'kurs': ok})
+            changes.append({'typ': 'geloescht', 'kurs': ok}) # Gelöschter Kurs
+
     return changes
 
-# --- E-Mail mit Kurs-Updates ----------------------------------------------
+# --- E-Mail Formatting ----------------------------------------------------
+# formatiert einen Kurs als HTML-String (bzw. Plaintext als Fallback) mit wichtigen Feldern in priorisierter Reihenfolge und allem Rest darunter.
 def format_kurs_info(k):
-    prio = ['KursnrNo.', 'TagDay', 'ZeitTime', 'OrtLocation', 'LeitungGuidance', 'PreisCost'] # Priorisierte Felder. Manche Felder sind besonders wichtig (z. B. Kurs‑Nummer, Tag, Zeit, Ort, Leitung, Preis). Wenn sie im Dictionary k existieren, werden sie in genau dieser Reihenfolge direkt unterhalb der Kopfzeile ausgegeben.
-    lines = [ f"<b>{k['kursname']}</b> ({k['tabellenname']})<br>Status: {k['status']}<br>Link: <a href='{k['url']}'>{k['url']}</a><br>" ] # Kopfzeile mit Kurs‑Meta (fett)
+    prio = ['KursnrNo.', 'TagDay', 'ZeitTime', 'OrtLocation', 'LeitungGuidance', 'PreisCost']
+    lines = [f"<b>{k['kursname']}</b> ({k['tabellenname']})<br>Status: {k['status']}<br><a href='{k['url']}'>{k['url']}</a><br>"]
     for p in prio:
-        if p in k: lines.append(f"{p}: {k[p]}<br>")
-    for kk, vv in k.items(): # Alle übrigen Felder
-        if kk not in prio + ['kursname','tabellenname','url','status']:
+        if p in k:
+            lines.append(f"{p}: {k[p]}<br>")
+    for kk, vv in k.items():
+        if kk not in prio + ['kursname', 'tabellenname', 'url', 'status']:
             lines.append(f"{kk}: {vv}<br>")
     return ''.join(lines)
 
-# Änderungen pro (kursname, tabellenname), damit eine Mail pro Untertabelle kommt.
-def send_changes_emails(changes, config):
+# gruppiert die Änderungen nach Kurs und Tabelle, erstellt eine schöne HTML-/Text-Mail mit Überschriften und Auflistungen der neuen, geänderten oder gelöschten Kurse und versendet diese Mail.
+def send_changes_email(changes):
     if not changes:
         return
-    grp = defaultdict(list) #  Erstellt ein Dictionary namens grp, dessen Werte automatisch als leere Listen initialisiert werden. Wir wollen alle Änderungen gruppieren nach (kursname, tabellenname), damit pro Untertabelle nur eine Mail kommt.
-    for c in changes: # Für jede Änderung
-        k = c['kurs'] if c['typ'] in ['neu','geloescht'] else c['neu'] # Wenn c['typ'] "neu" oder "geloescht" ist, steckt das Kurs‑Objekt unter c['kurs']. Bei "status_update" liegt das neue Kurs‑Objekt unter c['neu'].
-        grp[(k['kursname'], k['tabellenname'])].append(c) # Wir fügen die Änderung c der Liste hinzu, die zum Schlüssel (kursname, tabellenname) gehört. Dadurch entsteht z.B. grp[("Krafttraining","Einweisung")] = [ Änderung1, Änderung2, … ]
+    
+    # changes ist eine Liste von Kursänderungen. Jede Änderung ist ein Dict mit unterschiedlichen Feldern, z.B.:
+    # Bei neuen oder gelöschten Kursen: {'typ': 'neu', 'kurs': {... Kurs-Daten ...}}
+    # Bei Statusänderungen: {'typ': 'status_update', 'alt': {...}, 'neu': {...}}
 
-    for (name, tab), items in grp.items(): # Iterieren über alle Gruppen von Änderungen. items = Liste aller Änderungs‑Dicts für genau diese Kombination
-        subject = f"ZHS Kurs-Update: {name} - {tab}"
-        text = f"Änderungen für {name} / {tab}:\n"
-        html = "<h2>Änderungen für {}/{}:</h2>".format(name, tab)
-        # neu
-        neu = [c['kurs'] for c in items if c['typ']=='neu'] # Extrahiert alle Kurse, die neu hinzugekommen sind, in eine Liste neu
-        if neu: # Neue Kurse => Neuer Abschnitt
-            text += "Neue Kurse:\n"
-            html += "<h3>🟢 Neue Kurse</h3>"
-            for k in neu:
-                text += format_kurs_info(k).replace('<br>','\n') + "\n\n" #  liefert einen HTML‑String mit <br> als Zeilen­umbruch. wandelt diese in echte Zeilen­umbrüche um.
-                html += format_kurs_info(k)
-        
-        text += "\n\n"
-        html += "<br><br>"
+    # Gruppiert die Kurse mit ihren Tabllen/Unterkursen
+    structured = defaultdict(lambda: defaultdict(list)) # Sorgt dafür, dass sich neue Unter-Dicts und Listen automatisch anlegen, wenn sie noch nicht existieren.
+    for c in changes:
+        # Kurs-Datensatz herausholen
+        # Bei neuen oder gelöschten Kursen ist der Kurs unter c['kurs']
+        # Bei Statusänderungen ist der neue Kurs (der relevant für die Gruppierung ist) unter c['neu']
+        k = c['kurs'] if c['typ'] in ['neu', 'geloescht'] else c['neu']
+        structured[k['kursname']][k['tabellenname']].append(c) # Änderung c in die passende Gruppe eingeordnet, nämlich unter structured[kursname][tabellenname]
 
-        # status_update
-        upd = [c for c in items if c['typ']=='status_update'] # Extrahiert alle Status‑Änderungen in upd.
-        if upd:
-            text += "Status-Updates:\n"
-            html += "<h3>🔁 Status-Updates</h3>"
-            for c in upd:
-                nk = c['neu']; ok = c['alt'] # Neuer Kurs und Alter Kurs
-                line = format_kurs_info(nk) + f"Status: {ok['status']} → {nk['status']}<br><br>"
-                text += line.replace('<br>','\n') + "\n\n"
-                html += line
+    subject = "ZHS Kurs-Update: Gesamtübersicht"
+    # Wir erstellen zwei Versionen des E-Mail-Inhalts:  
+    # - 'html' für formatierte Darstellung mit Überschriften, Links und Zeilenumbrüchen  
+    # - 'body' als reine Textversion für E-Mail-Clients, die kein HTML unterstützen  
+    # So wird sichergestellt, dass die Nachricht bei allen Empfängern korrekt und lesbar ankommt.
+    body = ""
+    html = ""
+    for kursname, tabellen in structured.items():
+        html += f"<h1>{kursname}</h1>"
+        body += f"{kursname}\n\n"
+        for tabname, items in tabellen.items():
+            html += f"<h2>{tabname}</h2>"
+            body += f"{tabname}\n"
+            for c in items:
+                if c['typ'] == 'neu':
+                    html += "<h3>🟢 Neuer Kurs</h3>" + format_kurs_info(c['kurs']) + "<br><br>"
+                    body += format_kurs_info(c['kurs']).replace('<br>', '\n') + "\n\n"
+                elif c['typ'] == 'status_update':
+                    nk = c['neu']
+                    ok = c['alt']
+                    html += f"<h3>🔁 Statusänderung</h3>" + format_kurs_info(nk) + f"Status: {ok['status']} → {nk['status']}<br><br>"
+                    body += format_kurs_info(nk).replace('<br>', '\n') + f"\nStatus: {ok['status']} → {nk['status']}\n\n"
+                elif c['typ'] == 'geloescht':
+                    html += "<h3>❌ Gelöscht</h3>" + format_kurs_info(c['kurs']) + "<br><br>"
+                    body += format_kurs_info(c['kurs']).replace('<br>', '\n') + "\n\n"
+            body += "\n"
 
-        text += "\n\n"
-        html += "<br><br>"
+    send_email_raw(subject, body, html)
 
-        # deleted
-        dl = [c['kurs'] for c in items if c['typ']=='geloescht'] # Extrahiere alle gelöschten Kurse in dl
-        if dl:
-            text += "Gelöschte Kurse:\n"
-            html += "<h3>❌ Gelöschte Kurse</h3>"
-            for k in dl:
-                text += format_kurs_info(k).replace('<br>','\n') + "\n\n"
-                html += format_kurs_info(k)
-        send_email_raw(subject, text, html)
-
-# --- Main Loop -------------------------------------------------------------
+# --- Main Loop ------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="ZHS Kurs-Scraper")
     parser.add_argument("-d", "--debug", action="store_true", help="Debug-Logging aktivieren")
     args = parser.parse_args()
     setup_logger(debug=args.debug)
+
     try:
-        # Initialer Zustand
-        state = load_state()  # Letzten Zustand aus Datei oder leer
+        state = load_state()
         interval = None
         interesting = None
 
         while True:
-            # Config bei jedem Durchlauf frisch einlesen
             config = load_config()
             if not config:
                 logging.error("Keine gültige Konfiguration, breche ab.")
                 return
 
-            # Intervall und interessante Stati aus Config übernehmen
             interval = config.get("interval", interval or 600)
-            interesting = config.get(
-                "interesting_status",
-                interesting or ["buchen", "Warteliste", "buchbar_ab"]
-            )
+            interesting = config.get("interesting_status", interesting or ["buchen", "Warteliste", "buchbar_ab"])
 
-            # Alle Kurse scrapen
             all_new = []
             for cfg in config.get('kurse', []):
-                all_new.extend(scrape_kurs(cfg))
+                try:
+                    all_new.extend(scrape_kurs(cfg))
+                except Exception as e:
+                    logging.error(f"Kurs {cfg['name']} ausgelassen: {e}")
 
-            # Änderungen ermitteln
             changes = compare_kurse(state.get('kurse', []), all_new, interesting)
 
             if changes:
-                send_changes_emails(changes, config)
+                send_changes_email(changes)
                 save_state({'kurse': all_new})
                 state = {'kurse': all_new}
             else:

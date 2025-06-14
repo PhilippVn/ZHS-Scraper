@@ -1,5 +1,9 @@
 {
   "interval": 600,
+  "error_timeouts": {
+    "Scraping-Fehler": 3600,
+    "Parsing-Fehler": 1800
+  },
   "interesting_status": [
     "buchen",
     "Warteliste",

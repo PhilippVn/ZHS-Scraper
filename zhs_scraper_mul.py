@@ -292,30 +292,43 @@ def main():
     args = parser.parse_args()
     setup_logger(debug=args.debug)
     try:
-        interval = config.get('interval', 600)
-        interesting = config.get('interesting_status', ['buchen','Warteliste','buchbar_ab']) # Liste der Stati, auf die wir achten (z.B. ["buchen","Warteliste","buchbar_ab"]).
+        # Initialer Zustand
+        state = load_state()  # Letzten Zustand aus Datei oder leer
+        interval = None
+        interesting = None
 
-        state = load_state() # Lädt den letzten Zustand (Liste aller Kurse) aus kurs_status.json oder initialisiert mit leerer Liste.
         while True:
             # Config bei jedem Durchlauf frisch einlesen
             config = load_config()
             if not config:
                 logging.error("Keine gültige Konfiguration, breche ab.")
                 return
+
+            # Intervall und interessante Stati aus Config übernehmen
+            interval = config.get("interval", interval or 600)
+            interesting = config.get(
+                "interesting_status",
+                interesting or ["buchen", "Warteliste", "buchbar_ab"]
+            )
+
+            # Alle Kurse scrapen
             all_new = []
-            for cfg in config.get('kurse', []): # Für jeden konfigurierten Kurs: Rufe scrape_kurs(cfg) auf, sammle alle gefundenen Unterkurse in all_new.
+            for cfg in config.get('kurse', []):
                 all_new.extend(scrape_kurs(cfg))
 
-            changes = compare_kurse(state.get('kurse', []), all_new, interesting) # Vergleicht state["kurse"] (alt) mit all_new (neu) und liefert eine Liste von allen Änderungen zurück.
-            if changes: # Falls Änderungen
-                send_changes_emails(changes, config) # E‑Mails mit allen neuen, gelöschten oder Status‑Änderungen.
-                save_state({'kurse': all_new}) # Speichert den aktuellen Kurs‐Zustand in kurs_status.json.
-                state = {'kurse': all_new} # Aktualisiert die In‑Memory‑Variable.
+            # Änderungen ermitteln
+            changes = compare_kurse(state.get('kurse', []), all_new, interesting)
+
+            if changes:
+                send_changes_emails(changes, config)
+                save_state({'kurse': all_new})
+                state = {'kurse': all_new}
             else:
                 logging.info("Keine Änderungen gefunden.")
 
             logging.info(f"Warte {interval} Sekunden...")
             time.sleep(interval)
+
     except KeyboardInterrupt:
         logging.info("Scraper durch Benutzer beendet.")
     except Exception as e:

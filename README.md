@@ -1,5 +1,5 @@
-# 📌 ZHS-Scraper-Multi
-ZHS-Scraper-Multi ist ein Python-Script, das regelmäßig definierte Kursseiten des Zentralen Hochschulsports (ZHS) abruft, analysiert und dich per E-Mail informiert, wenn sich der Buchungsstatus eines Kurses ändert (z. B. wenn ein Kurs plötzlich buchbar wird).
+# 📌 ZHS-Scraper
+ZHS-Scraper ist ein Python-Script, das regelmäßig definierte Kursseiten des Zentralen Hochschulsports (ZHS) abruft, analysiert und dich per E-Mail informiert, wenn neue Kurse hinzugefügt wurden oder sich der Buchungsstatus eines Kurses ändert (z. B. wenn ein Kurs plötzlich buchbar wird).
 
 ## ✨ Features
 ⏱️ Regelmäßiges Monitoring von beliebig vielen Kursen und Tabellen
